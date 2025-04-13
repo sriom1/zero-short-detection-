@@ -97,6 +97,8 @@ This project uses [OWL-ViT (Object detection with language prompts)](https://hug
 ## 📸 Screenshot
 
 ![Zero-Shot Detection Output](./Screenshot%202025-04-13%20155245.png)
+![Zero-Shot Detection](./Screenshot%202025-04-13%20155452.png)
+
 
 
 ---
