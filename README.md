@@ -1,7 +1,10 @@
 
 # 🧠 Zero-Shot Object Detection with OWL-ViT
 
-Real-time object detection using [OWL-ViT](https://huggingface.co/google/owlvit-base-patch32) (Zero-Shot Vision Transformer) with a custom Tkinter-based GUI. Supports live webcam detection, editable prompts, prompt history, logging, and frame rate optimization.
+Real-time object detection using [OWL-ViT](https://huggingface.co/google/owlvit-base-patch32) (Zero-Shot Vision Transformer) with a custom Tkinter-based GUI. Supports live webcam detection, editable prompts, prompt history, logging, and frame rate optimization,real-time dashboard where users can update prompts, view detections, and track performance metrics like FPS.
+
+
+Detect objects in real-time based on natural language prompts. Instead of training a model on a fixed set of categories, OWL-ViT allows the user to describe what they want to detect (e.g., "a transparent water bottle") using text prompts. The model processes the live webcam feed, extracts visual features, and matches them with the text prompts to draw bounding boxes on detected objects. 
 
 ---
 
