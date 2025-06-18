@@ -4,9 +4,6 @@ import cv2
 from PIL import Image
 import numpy as np
 import time
-import json
-from streamlit_webrtc import webrtc_streamer
-import av
 
 def process_image(detector, image):
     # Convert to RGB if needed
@@ -41,15 +38,10 @@ def load_prompts_from_file(file):
     content = file.read().decode()
     return [p.strip() for p in content.split(',') if p.strip()]
 
-def video_frame_callback(frame):
-    img = frame.to_ndarray(format="bgr24")
-    # Process frame with detector here
-    return av.VideoFrame.from_ndarray(img, format="bgr24")
-
 def main():
     st.title("Zero-Shot Object Detection")
     
-    # Initialize detector and prompt history
+    # Initialize detector
     if 'detector' not in st.session_state:
         with st.spinner('Loading model...'):
             st.session_state.detector = ObjectDetector(enable_logging=True, log_format="csv")
@@ -104,38 +96,67 @@ def main():
         for i, hist_prompts in enumerate(st.session_state.prompt_history[-5:]):
             st.sidebar.text(f"{i+1}: {', '.join(hist_prompts)}")
 
-    # Main content - Detection tabs
-    tab1, tab2, tab3 = st.tabs(["Upload Image", "Browser Camera", "Device Camera"])
+    # Main content - Tabs for different input methods
+    tab1, tab2 = st.tabs(["Live Detection", "Image Upload"])
     
     with tab1:
+        st.header("Live Detection")
+        # Using Streamlit's native camera input
+        camera_input = st.camera_input("Take a picture")
+        
+        if camera_input is not None:
+            try:
+                # Convert the file buffer to image
+                file_bytes = np.asarray(bytearray(camera_input.read()), dtype=np.uint8)
+                image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                
+                if image is None:
+                    st.error("Failed to capture image from camera")
+                    return
+                
+                # Process and display the captured frame
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.subheader("Camera Input")
+                    st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+                
+                with col2:
+                    st.subheader("Detected Objects")
+                    processed_image = process_image(st.session_state.detector, image.copy())
+                    st.image(cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB))
+                
+            except Exception as e:
+                st.error(f"Error processing camera input: {str(e)}")
+    
+    with tab2:
+        st.header("Upload Image")
         uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+        
         if uploaded_file is not None:
             try:
+                # Convert uploaded file to image
                 file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
                 image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
                 
                 if image is None:
                     st.error("Failed to decode image. Please try another file.")
                     return
-                    
-                processed_image = process_image(st.session_state.detector, image)
-                st.image(cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB))
+                
+                # Process and display image
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.subheader("Original Image")
+                    st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+                
+                with col2:
+                    st.subheader("Detected Objects")
+                    processed_image = process_image(st.session_state.detector, image.copy())
+                    st.image(cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB))
                 
             except Exception as e:
                 st.error(f"Error processing image: {str(e)}")
-    
-    with tab2:
-        webrtc_streamer(
-            key="example",
-            video_frame_callback=video_frame_callback,
-            rtc_configuration={
-                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-            }
-        )
-    
-    with tab3:
-        st.warning("⚠️ Device camera access not available in cloud deployment")
-        # ...existing device camera code...
 
 if __name__ == "__main__":
     main()
