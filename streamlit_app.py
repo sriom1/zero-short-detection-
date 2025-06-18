@@ -10,8 +10,9 @@ def main():
     
     # Initialize detector
     if 'detector' not in st.session_state:
-        st.session_state.detector = ObjectDetector(enable_logging=True, log_format="csv")
-    
+        with st.spinner('Loading model...'):
+            st.session_state.detector = ObjectDetector(enable_logging=True, log_format="csv")
+
     # Sidebar for prompts
     st.sidebar.header("Detection Prompts")
     current_prompts = ", ".join(st.session_state.detector.prompts)
@@ -32,16 +33,23 @@ def main():
 
     # Main content - Video capture
     st.header("Live Detection")
+    
+    if 'video_capture' not in st.session_state:
+        try:
+            st.session_state.video_capture = cv2.VideoCapture(0)
+        except Exception as e:
+            st.error(f"Error accessing camera: {str(e)}")
+            return
+
     frame_placeholder = st.empty()
     fps_placeholder = st.empty()
-    
-    cap = cv2.VideoCapture(0)
-    
+    stop_button = st.button("Stop")
+
     try:
-        while True:
+        while not stop_button:
             start_time = time.time()
             
-            ret, frame = cap.read()
+            ret, frame = st.session_state.video_capture.read()
             if not ret:
                 st.error("Failed to capture video frame")
                 break
@@ -58,20 +66,20 @@ def main():
                     cv2.putText(frame, f"{label_text} {score:.2f}", (x1, y1-10),
                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             
-            # Convert BGR to RGB for display
+            # Convert BGR to RGB
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            # Display the frame
             frame_placeholder.image(frame_rgb, channels="RGB")
             
-            # Calculate and display FPS
             fps = 1.0 / (time.time() - start_time)
             fps_placeholder.text(f"FPS: {fps:.1f}")
+            
+            time.sleep(0.1)  # Add small delay to prevent high CPU usage
             
     except Exception as e:
         st.error(f"Error: {str(e)}")
     finally:
-        cap.release()
+        if 'video_capture' in st.session_state:
+            st.session_state.video_capture.release()
 
 if __name__ == "__main__":
     main()
