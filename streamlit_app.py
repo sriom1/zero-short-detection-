@@ -103,51 +103,96 @@ def main():
     with tab1:
         uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
         if uploaded_file is not None:
-            # Convert uploaded file to image
-            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-            image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            
-            # Process and display image
-            processed_image = process_image(st.session_state.detector, image)
-            st.image(cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB))
+            try:
+                file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+                image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                
+                if image is None:
+                    st.error("Failed to decode image. Please try another file.")
+                    return
+                    
+                processed_image = process_image(st.session_state.detector, image)
+                st.image(cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB))
+                
+            except Exception as e:
+                st.error(f"Error processing image: {str(e)}")
     
     with tab2:
-        try:
-            if 'video_capture' not in st.session_state:
-                st.session_state.video_capture = cv2.VideoCapture(0)
+        st.warning("⚠️ Note: Live camera access may not be available in cloud deployment. Please use the 'Upload Image' tab instead.")
+        
+        camera_col, control_col = st.columns([3, 1])
+        
+        with control_col:
+            camera_options = ["Default Camera (0)", "External Camera (1)", "Virtual Camera (2)"]
+            selected_camera = st.selectbox("Select Camera", camera_options)
+            camera_index = int(selected_camera.split("(")[-1].strip(")"))
             
-            if not st.session_state.video_capture.isOpened():
-                st.error("Failed to access webcam. Please try uploading an image instead.")
+            start_camera = st.button("Start Camera")
+            stop_camera = st.button("Stop Camera")
+            
+            fps_placeholder = st.empty()
+
+        with camera_col:
+            frame_placeholder = st.empty()
+
+        if start_camera:
+            try:
+                if 'video_capture' in st.session_state:
+                    st.session_state.video_capture.release()
+                
+                st.session_state.video_capture = cv2.VideoCapture(camera_index)
+                time.sleep(1)  # Give camera time to initialize
+                
+                if not st.session_state.video_capture.isOpened():
+                    raise Exception(f"Failed to open camera {camera_index}")
+                    
+                st.session_state.camera_running = True
+                
+            except Exception as e:
+                st.error(f"Failed to start camera: {str(e)}")
+                st.info("Please try uploading an image using the 'Upload Image' tab instead.")
+                if 'video_capture' in st.session_state:
+                    st.session_state.video_capture.release()
+                st.session_state.camera_running = False
                 return
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                frame_placeholder = st.empty()
-            with col2:
-                fps_placeholder = st.empty()
-                stop_button = st.button("Stop Camera")
-            
-            while not stop_button:
-                start_time = time.time()
-                ret, frame = st.session_state.video_capture.read()
-                
-                if not ret:
-                    st.error("Failed to capture video frame")
-                    break
-                
-                processed_frame = process_image(st.session_state.detector, frame)
-                frame_placeholder.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB))
-                
-                fps = 1.0 / (time.time() - start_time)
-                fps_placeholder.metric("FPS", f"{fps:.1f}")
-                time.sleep(0.1)
-                
-        except Exception as e:
-            st.error(f"Camera error: {str(e)}")
-            st.info("Please try uploading an image instead.")
-        finally:
+
+        if stop_camera:
             if 'video_capture' in st.session_state:
                 st.session_state.video_capture.release()
+            st.session_state.camera_running = False
+            frame_placeholder.empty()
+            fps_placeholder.empty()
+            return
+
+        # Only try to capture frames if camera is running
+        if st.session_state.get('camera_running', False):
+            try:
+                while True:
+                    start_time = time.time()
+                    ret, frame = st.session_state.video_capture.read()
+                    
+                    if not ret:
+                        st.error("Failed to capture video frame")
+                        break
+                    
+                    processed_frame = process_image(st.session_state.detector, frame)
+                    frame_placeholder.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB))
+                    
+                    fps = 1.0 / (time.time() - start_time)
+                    fps_placeholder.metric("FPS", f"{fps:.1f}")
+                    
+                    if not st.session_state.get('camera_running', False):
+                        break
+                        
+                    time.sleep(0.1)
+                    
+            except Exception as e:
+                st.error(f"Camera error: {str(e)}")
+                st.info("Please try uploading an image using the 'Upload Image' tab instead.")
+            finally:
+                if 'video_capture' in st.session_state:
+                    st.session_state.video_capture.release()
+                st.session_state.camera_running = False
 
 if __name__ == "__main__":
     main()
