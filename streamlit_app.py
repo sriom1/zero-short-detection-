@@ -5,6 +5,8 @@ from PIL import Image
 import numpy as np
 import time
 import json
+from streamlit_webrtc import webrtc_streamer
+import av
 
 def process_image(detector, image):
     # Convert to RGB if needed
@@ -38,6 +40,11 @@ def save_prompts_to_file(prompts, filename):
 def load_prompts_from_file(file):
     content = file.read().decode()
     return [p.strip() for p in content.split(',') if p.strip()]
+
+def video_frame_callback(frame):
+    img = frame.to_ndarray(format="bgr24")
+    # Process frame with detector here
+    return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 def main():
     st.title("Zero-Shot Object Detection")
@@ -98,7 +105,7 @@ def main():
             st.sidebar.text(f"{i+1}: {', '.join(hist_prompts)}")
 
     # Main content - Detection tabs
-    tab1, tab2 = st.tabs(["Upload Image", "Live Camera"])
+    tab1, tab2, tab3 = st.tabs(["Upload Image", "Browser Camera", "Device Camera"])
     
     with tab1:
         uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
@@ -118,81 +125,17 @@ def main():
                 st.error(f"Error processing image: {str(e)}")
     
     with tab2:
-        st.warning("⚠️ Note: Live camera access may not be available in cloud deployment. Please use the 'Upload Image' tab instead.")
-        
-        camera_col, control_col = st.columns([3, 1])
-        
-        with control_col:
-            camera_options = ["Default Camera (0)", "External Camera (1)", "Virtual Camera (2)"]
-            selected_camera = st.selectbox("Select Camera", camera_options)
-            camera_index = int(selected_camera.split("(")[-1].strip(")"))
-            
-            start_camera = st.button("Start Camera")
-            stop_camera = st.button("Stop Camera")
-            
-            fps_placeholder = st.empty()
-
-        with camera_col:
-            frame_placeholder = st.empty()
-
-        if start_camera:
-            try:
-                if 'video_capture' in st.session_state:
-                    st.session_state.video_capture.release()
-                
-                st.session_state.video_capture = cv2.VideoCapture(camera_index)
-                time.sleep(1)  # Give camera time to initialize
-                
-                if not st.session_state.video_capture.isOpened():
-                    raise Exception(f"Failed to open camera {camera_index}")
-                    
-                st.session_state.camera_running = True
-                
-            except Exception as e:
-                st.error(f"Failed to start camera: {str(e)}")
-                st.info("Please try uploading an image using the 'Upload Image' tab instead.")
-                if 'video_capture' in st.session_state:
-                    st.session_state.video_capture.release()
-                st.session_state.camera_running = False
-                return
-
-        if stop_camera:
-            if 'video_capture' in st.session_state:
-                st.session_state.video_capture.release()
-            st.session_state.camera_running = False
-            frame_placeholder.empty()
-            fps_placeholder.empty()
-            return
-
-        # Only try to capture frames if camera is running
-        if st.session_state.get('camera_running', False):
-            try:
-                while True:
-                    start_time = time.time()
-                    ret, frame = st.session_state.video_capture.read()
-                    
-                    if not ret:
-                        st.error("Failed to capture video frame")
-                        break
-                    
-                    processed_frame = process_image(st.session_state.detector, frame)
-                    frame_placeholder.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB))
-                    
-                    fps = 1.0 / (time.time() - start_time)
-                    fps_placeholder.metric("FPS", f"{fps:.1f}")
-                    
-                    if not st.session_state.get('camera_running', False):
-                        break
-                        
-                    time.sleep(0.1)
-                    
-            except Exception as e:
-                st.error(f"Camera error: {str(e)}")
-                st.info("Please try uploading an image using the 'Upload Image' tab instead.")
-            finally:
-                if 'video_capture' in st.session_state:
-                    st.session_state.video_capture.release()
-                st.session_state.camera_running = False
+        webrtc_streamer(
+            key="example",
+            video_frame_callback=video_frame_callback,
+            rtc_configuration={
+                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+            }
+        )
+    
+    with tab3:
+        st.warning("⚠️ Device camera access not available in cloud deployment")
+        # ...existing device camera code...
 
 if __name__ == "__main__":
     main()
