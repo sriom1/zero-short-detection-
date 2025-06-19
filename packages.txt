@@ -2,3 +2,5 @@ libgl1-mesa-glx
 ffmpeg
 libsm6
 libxext6
+libxvidcore4
+x264

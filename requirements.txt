@@ -6,3 +6,5 @@ pillow
 numpy
 streamlit
 python-multipart
+streamlit-webrtc
+av

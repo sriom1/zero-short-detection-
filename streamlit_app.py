@@ -1,10 +1,37 @@
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+import av
 from detections import ObjectDetector
 import cv2
 from PIL import Image
 import numpy as np
 import time
 import json
+
+class VideoTransformer(VideoTransformerBase):
+    def __init__(self):
+        self.detector = ObjectDetector(enable_logging=True, log_format="csv")
+
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        
+        # Run detection
+        try:
+            detections = self.detector.detect(img)
+            
+            # Draw detections
+            for box, score, label in zip(detections["boxes"], detections["scores"], detections["labels"]):
+                if score > 0.2:
+                    x1, y1, x2, y2 = map(int, box.tolist())
+                    label_text = self.detector.prompts[label]
+                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(img, f"{label_text} {score:.2f}", 
+                              (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 
+                              0.5, (0, 255, 0), 2)
+        except Exception as e:
+            st.error(f"Detection error: {str(e)}")
+        
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 def process_image(detector, image):
     try:
@@ -148,82 +175,31 @@ def main():
     with tab1:
         st.header("Live Detection")
         
-        # Add a start/stop button
-        if 'is_detecting' not in st.session_state:
-            st.session_state.is_detecting = False
+        # WebRTC streamer
+        webrtc_ctx = webrtc_streamer(
+            key="zero-shot-detection",
+            video_transformer_factory=VideoTransformer,
+            async_transform=True,
+            media_stream_constraints={"video": True, "audio": False},
+            rtc_configuration={
+                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+            }
+        )
 
-        col1, col2 = st.columns([3, 1])
-        with col2:
-            if st.button("Start" if not st.session_state.is_detecting else "Stop"):
-                st.session_state.is_detecting = not st.session_state.is_detecting
-                if not st.session_state.is_detecting:
-                    st.rerun()
-
-        with col1:
-            # Create placeholder for video feed
-            video_placeholder = st.empty()
-            fps_placeholder = st.empty()
-
-        if st.session_state.is_detecting:
+        # Display detection history
+        if webrtc_ctx.state.playing:
             try:
-                # Initialize video capture
-                cap = cv2.VideoCapture(0)
+                with open(st.session_state.detector.detection_file, 'r') as f:
+                    detection_history = json.load(f)
                 
-                # Check if camera opened successfully
-                if not cap.isOpened():
-                    st.error("Error: Could not open camera")
-                    st.session_state.is_detecting = False
-                    st.rerun()
-                
-                while st.session_state.is_detecting:
-                    start_time = time.time()
-                    
-                    # Capture frame
-                    ret, frame = cap.read()
-                    if not ret:
-                        st.error("Failed to capture frame")
-                        break
-                    
-                    # Process frame
-                    try:
-                        # Run detection
-                        detections = st.session_state.detector.detect(frame)
-                        
-                        # Draw detections
-                        for box, score, label in zip(detections["boxes"], detections["scores"], detections["labels"]):
-                            if score > 0.2:
-                                x1, y1, x2, y2 = map(int, box.tolist())
-                                label_text = st.session_state.detector.prompts[label]
-                                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                                cv2.putText(frame, f"{label_text} {score:.2f}", 
-                                          (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                                          0.5, (0, 255, 0), 2)
-                        
-                        # Convert BGR to RGB
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        
-                        # Display the frame
-                        video_placeholder.image(frame_rgb, channels="RGB")
-                        
-                        # Calculate and display FPS
-                        fps = 1.0 / (time.time() - start_time)
-                        fps_placeholder.text(f"FPS: {fps:.1f}")
-                        
-                    except Exception as e:
-                        st.error(f"Error in detection: {str(e)}")
-                        break
-                    
-                    # Add a small delay to prevent high CPU usage
-                    time.sleep(0.01)
-                
-                # Release camera when stopped
-                cap.release()
-                
+                st.sidebar.subheader("Live Detections")
+                for entry in detection_history[-5:]:  # Show last 5 detections
+                    st.sidebar.markdown(f"""
+                    **Object**: {entry['object_detected']}  
+                    **Confidence**: {entry['confidence_score']:.2f}
+                    """)
             except Exception as e:
-                st.error(f"Camera error: {str(e)}")
-            finally:
-                if 'cap' in locals():
-                    cap.release()
+                st.sidebar.error(f"Error loading detection history: {str(e)}")
     
     with tab2:
         st.header("Upload Image")
