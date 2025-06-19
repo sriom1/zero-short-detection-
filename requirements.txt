@@ -5,6 +5,3 @@ opencv-python-headless
 pillow
 numpy
 streamlit
-python-multipart
-streamlit-webrtc
-av

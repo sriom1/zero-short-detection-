@@ -1,243 +1,78 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
-import av
 from detections import ObjectDetector
 import cv2
 from PIL import Image
 import numpy as np
 import time
-import json
 
-class VideoTransformer(VideoTransformerBase):
-    def __init__(self):
-        self.detector = ObjectDetector(enable_logging=True, log_format="csv")
-
-    def transform(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        
-        # Run detection
-        try:
-            detections = self.detector.detect(img)
-            
-            # Draw detections
-            for box, score, label in zip(detections["boxes"], detections["scores"], detections["labels"]):
-                if score > 0.2:
-                    x1, y1, x2, y2 = map(int, box.tolist())
-                    label_text = self.detector.prompts[label]
-                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(img, f"{label_text} {score:.2f}", 
-                              (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 
-                              0.5, (0, 255, 0), 2)
-        except Exception as e:
-            st.error(f"Detection error: {str(e)}")
-        
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
-
-def process_image(detector, image):
+def process_frame(detector, frame):
     try:
-        # Convert to RGB if needed
-        if len(image.shape) == 2:
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-        elif image.shape[2] == 4:
-            image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-        
-        # Convert to PIL Image for processor
-        pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        
-        # Process with truncation and padding
-        inputs = detector.processor(
-            text=detector.prompts,
-            images=pil_image,
-            return_tensors="pt",
-            padding=True,
-            truncation=True
-        )
-        
-        # Run detection using processed inputs
-        detections = detector.detect(image)
+        # Run detection
+        detections = detector.detect(frame)
         
         # Draw detections
         for box, score, label in zip(detections["boxes"], detections["scores"], detections["labels"]):
             if score > 0.2:
                 x1, y1, x2, y2 = map(int, box.tolist())
                 label_text = detector.prompts[label]
-                cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(image, f"{label_text} {score:.2f}", (x1, y1-10),
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        
-        return image
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, f"{label_text} {score:.2f}", 
+                          (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 
+                          0.5, (0, 255, 0), 2)
+        return frame, detections
     except Exception as e:
-        st.error(f"Error in processing image: {str(e)}")
-        return image
-
-def load_prompt_history():
-    if 'prompt_history' not in st.session_state:
-        st.session_state.prompt_history = []
-
-def save_prompts_to_file(prompts, filename):
-    with open(filename, 'w') as f:
-        f.write(', '.join(prompts))
-
-def load_prompts_from_file(file):
-    content = file.read().decode()
-    return [p.strip() for p in content.split(',') if p.strip()]
+        st.error(f"Detection error: {str(e)}")
+        return frame, None
 
 def main():
     st.title("Zero-Shot Object Detection")
     
-    # Initialize detector and prompt history
+    # Initialize detector
     if 'detector' not in st.session_state:
         with st.spinner('Loading model...'):
             st.session_state.detector = ObjectDetector(enable_logging=True, log_format="csv")
     
-    load_prompt_history()
-
-    # Sidebar for prompts management
-    st.sidebar.header("Prompts Management")
+    # Main content area
+    col1, col2 = st.columns([3, 1])
     
-    # Add custom prompt
-    st.sidebar.subheader("Add Custom Prompt")
-    new_custom_prompt = st.sidebar.text_input("Enter a new prompt")
-    if st.sidebar.button("Add Prompt"):
-        if new_custom_prompt:
-            st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
-            st.session_state.detector.prompts.append(new_custom_prompt)
-            st.sidebar.success(f"Added prompt: {new_custom_prompt}")
-            st.rerun()  # Changed from st.experimental_rerun()
-        else:
-            st.sidebar.warning("Please enter a prompt first")
-    
-    # Current prompts display with delete buttons
-    st.sidebar.subheader("Current Prompts")
-    for i, prompt in enumerate(st.session_state.detector.prompts):
-        col1, col2 = st.sidebar.columns([3, 1])
-        with col1:
-            st.text(f"{i+1}. {prompt}")
-        with col2:
-            # Delete prompt button
-            if st.button("Delete", key=f"delete_{i}"):
-                st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
-                st.session_state.detector.prompts.pop(i)
-                st.rerun()  # Changed from st.experimental_rerun()
-    
-    # Bulk edit prompts
-    st.sidebar.subheader("Bulk Edit Prompts")
-    current_prompts = ", ".join(st.session_state.detector.prompts)
-    new_prompts = st.sidebar.text_area("Edit all prompts (comma-separated)", value=current_prompts)
-    
-    # Update prompts button
-    if st.sidebar.button("Update All Prompts"):
-        st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
-        prompts = [p.strip() for p in new_prompts.split(",") if p.strip()]
-        st.session_state.detector.prompts = prompts
-        st.sidebar.success("Prompts updated successfully!")
-    
-    # Undo prompt changes
-    if st.sidebar.button("Undo Changes") and st.session_state.prompt_history:
-        previous_prompts = st.session_state.prompt_history.pop()
-        st.session_state.detector.prompts = previous_prompts
-        st.rerun()  # Changed from st.experimental_rerun()
-
-    # Save prompts to file
-    if st.sidebar.button("Save Prompts"):
-        try:
-            save_prompts_to_file(st.session_state.detector.prompts, "saved_prompts.txt")
-            st.sidebar.success("Prompts saved to saved_prompts.txt")
-        except Exception as e:
-            st.sidebar.error(f"Error saving prompts: {str(e)}")
-    
-    # Load prompts from file
-    uploaded_file = st.sidebar.file_uploader("Load Prompts from File", type="txt")
-    if uploaded_file is not None:
-        try:
-            loaded_prompts = load_prompts_from_file(uploaded_file)
-            st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
-            st.session_state.detector.prompts = loaded_prompts
-            st.sidebar.success("Prompts loaded successfully!")
-            st.rerun()  # Changed from st.experimental_rerun()
-        except Exception as e:
-            st.sidebar.error(f"Error loading prompts: {str(e)}")
-    
-    # Show prompt count
-    st.sidebar.subheader("Statistics")
-    st.sidebar.text(f"Total Prompts: {len(st.session_state.detector.prompts)}")
-    
-    # Reset to defaults
-    if st.sidebar.button("Reset to Default Prompts"):
-        if st.sidebar.button("Confirm Reset"):
-            st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
-            st.session_state.detector = ObjectDetector(enable_logging=True, log_format="csv")
-            st.rerun()  # Changed from st.experimental_rerun()
-
-    # Main content - Tabs for different input methods
-    tab1, tab2 = st.tabs(["Live Detection", "Image Upload"])
-    
-    with tab1:
+    with col1:
         st.header("Live Detection")
+        # Using st.camera_input for live camera feed
+        camera_frame = st.camera_input("Camera")
         
-        # WebRTC streamer
-        webrtc_ctx = webrtc_streamer(
-            key="zero-shot-detection",
-            video_transformer_factory=VideoTransformer,
-            async_transform=True,
-            media_stream_constraints={"video": True, "audio": False},
-            rtc_configuration={
-                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-            }
-        )
-
-        # Display detection history
-        if webrtc_ctx.state.playing:
-            try:
-                with open(st.session_state.detector.detection_file, 'r') as f:
-                    detection_history = json.load(f)
-                
-                st.sidebar.subheader("Live Detections")
-                for entry in detection_history[-5:]:  # Show last 5 detections
-                    st.sidebar.markdown(f"""
-                    **Object**: {entry['object_detected']}  
-                    **Confidence**: {entry['confidence_score']:.2f}
-                    """)
-            except Exception as e:
-                st.sidebar.error(f"Error loading detection history: {str(e)}")
+        if camera_frame is not None:
+            # Convert camera frame to OpenCV format
+            bytes_data = camera_frame.getvalue()
+            img_array = np.asarray(bytearray(bytes_data), dtype=np.uint8)
+            frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            
+            # Process frame and get detections
+            start_time = time.time()
+            processed_frame, detections = process_frame(st.session_state.detector, frame)
+            fps = 1.0 / (time.time() - start_time)
+            
+            # Display processed frame
+            st.image(cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB))
+            st.metric("FPS", f"{fps:.1f}")
     
-    with tab2:
-        st.header("Upload Image")
-        uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
-        
-        if uploaded_file is not None:
-            try:
-                # Convert uploaded file to image
-                file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-                image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                
-                if image is None:
-                    st.error("Failed to decode image. Please try another file.")
-                    return
-                
-                # Process and display image
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.subheader("Original Image")
-                    st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-                
-                with col2:
-                    st.subheader("Detected Objects")
-                    processed_image = process_image(st.session_state.detector, image.copy())
-                    st.image(cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB))
-                
-            except Exception as e:
-                st.error(f"Error processing image: {str(e)}")
+    with col2:
+        st.header("Detections")
+        if 'last_detections' in st.session_state and st.session_state.last_detections:
+            for entry in st.session_state.last_detections["detection_entries"][-5:]:
+                st.markdown(f"""
+                **Object**: {entry['object_detected']}  
+                **Confidence**: {entry['confidence_score']:.2f}
+                ---
+                """)
 
-    # Add Detection History Display
-    if st.sidebar.button("Show Detection History"):
+    # Detection history in sidebar
+    if st.sidebar.button("Show Full Detection History"):
         try:
             with open(st.session_state.detector.detection_file, 'r') as f:
                 detection_history = json.load(f)
             
             st.sidebar.subheader("Recent Detections")
-            for entry in detection_history[-10:]:  # Show last 10 detections
+            for entry in detection_history[-10:]:
                 st.sidebar.markdown(f"""
                 **ID**: `{entry['detection_id'][:8]}`  
                 **Object**: {entry['object_detected']}  
