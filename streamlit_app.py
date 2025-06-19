@@ -41,7 +41,7 @@ def load_prompts_from_file(file):
 def main():
     st.title("Zero-Shot Object Detection")
     
-    # Initialize detector
+    # Initialize detector and prompt history
     if 'detector' not in st.session_state:
         with st.spinner('Loading model...'):
             st.session_state.detector = ObjectDetector(enable_logging=True, log_format="csv")
@@ -51,14 +51,37 @@ def main():
     # Sidebar for prompts management
     st.sidebar.header("Prompts Management")
     
-    # Current prompts display
+    # Add custom prompt
+    st.sidebar.subheader("Add Custom Prompt")
+    new_custom_prompt = st.sidebar.text_input("Enter a new prompt")
+    if st.sidebar.button("Add Prompt"):
+        if new_custom_prompt:
+            st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
+            st.session_state.detector.prompts.append(new_custom_prompt)
+            st.sidebar.success(f"Added prompt: {new_custom_prompt}")
+            st.experimental_rerun()
+        else:
+            st.sidebar.warning("Please enter a prompt first")
+    
+    # Current prompts display with delete buttons
     st.sidebar.subheader("Current Prompts")
+    for i, prompt in enumerate(st.session_state.detector.prompts):
+        col1, col2 = st.sidebar.columns([3, 1])
+        with col1:
+            st.text(f"{i+1}. {prompt}")
+        with col2:
+            if st.button("Delete", key=f"delete_{i}"):
+                st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
+                st.session_state.detector.prompts.pop(i)
+                st.experimental_rerun()
+    
+    # Bulk edit prompts
+    st.sidebar.subheader("Bulk Edit Prompts")
     current_prompts = ", ".join(st.session_state.detector.prompts)
-    new_prompts = st.sidebar.text_area("Edit prompts (comma-separated)", value=current_prompts)
+    new_prompts = st.sidebar.text_area("Edit all prompts (comma-separated)", value=current_prompts)
     
     # Update prompts button
-    if st.sidebar.button("Update Prompts"):
-        # Save to history before updating
+    if st.sidebar.button("Update All Prompts"):
         st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
         prompts = [p.strip() for p in new_prompts.split(",") if p.strip()]
         st.session_state.detector.prompts = prompts
@@ -90,11 +113,16 @@ def main():
         except Exception as e:
             st.sidebar.error(f"Error loading prompts: {str(e)}")
     
-    # Prompt history display
-    if st.session_state.prompt_history:
-        st.sidebar.subheader("Prompt History")
-        for i, hist_prompts in enumerate(st.session_state.prompt_history[-5:]):
-            st.sidebar.text(f"{i+1}: {', '.join(hist_prompts)}")
+    # Show prompt count
+    st.sidebar.subheader("Statistics")
+    st.sidebar.text(f"Total Prompts: {len(st.session_state.detector.prompts)}")
+    
+    # Reset to defaults
+    if st.sidebar.button("Reset to Default Prompts"):
+        if st.sidebar.button("Confirm Reset"):
+            st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
+            st.session_state.detector = ObjectDetector(enable_logging=True, log_format="csv")
+            st.experimental_rerun()
 
     # Main content - Tabs for different input methods
     tab1, tab2 = st.tabs(["Live Detection", "Image Upload"])
