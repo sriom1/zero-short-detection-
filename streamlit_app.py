@@ -146,33 +146,83 @@ def main():
     
     with tab1:
         st.header("Live Detection")
-        # Using Streamlit's native camera input
-        camera_input = st.camera_input("Take a picture")
         
-        if camera_input is not None:
+        # Add a start/stop button
+        if 'is_detecting' not in st.session_state:
+            st.session_state.is_detecting = False
+
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            if st.button("Start" if not st.session_state.is_detecting else "Stop"):
+                st.session_state.is_detecting = not st.session_state.is_detecting
+                if not st.session_state.is_detecting:
+                    st.rerun()
+
+        with col1:
+            # Create placeholder for video feed
+            video_placeholder = st.empty()
+            fps_placeholder = st.empty()
+
+        if st.session_state.is_detecting:
             try:
-                # Convert the file buffer to image
-                file_bytes = np.asarray(bytearray(camera_input.read()), dtype=np.uint8)
-                image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                # Initialize video capture
+                cap = cv2.VideoCapture(0)
                 
-                if image is None:
-                    st.error("Failed to capture image from camera")
-                    return
+                # Check if camera opened successfully
+                if not cap.isOpened():
+                    st.error("Error: Could not open camera")
+                    st.session_state.is_detecting = False
+                    st.rerun()
                 
-                # Process and display the captured frame
-                col1, col2 = st.columns(2)
+                while st.session_state.is_detecting:
+                    start_time = time.time()
+                    
+                    # Capture frame
+                    ret, frame = cap.read()
+                    if not ret:
+                        st.error("Failed to capture frame")
+                        break
+                    
+                    # Process frame
+                    try:
+                        # Run detection
+                        detections = st.session_state.detector.detect(frame)
+                        
+                        # Draw detections
+                        for box, score, label in zip(detections["boxes"], detections["scores"], detections["labels"]):
+                            if score > 0.2:
+                                x1, y1, x2, y2 = map(int, box.tolist())
+                                label_text = st.session_state.detector.prompts[label]
+                                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                                cv2.putText(frame, f"{label_text} {score:.2f}", 
+                                          (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 
+                                          0.5, (0, 255, 0), 2)
+                        
+                        # Convert BGR to RGB
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        
+                        # Display the frame
+                        video_placeholder.image(frame_rgb, channels="RGB")
+                        
+                        # Calculate and display FPS
+                        fps = 1.0 / (time.time() - start_time)
+                        fps_placeholder.text(f"FPS: {fps:.1f}")
+                        
+                    except Exception as e:
+                        st.error(f"Error in detection: {str(e)}")
+                        break
+                    
+                    # Add a small delay to prevent high CPU usage
+                    time.sleep(0.01)
                 
-                with col1:
-                    st.subheader("Camera Input")
-                    st.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-                
-                with col2:
-                    st.subheader("Detected Objects")
-                    processed_image = process_image(st.session_state.detector, image.copy())
-                    st.image(cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB))
+                # Release camera when stopped
+                cap.release()
                 
             except Exception as e:
-                st.error(f"Error processing camera input: {str(e)}")
+                st.error(f"Camera error: {str(e)}")
+            finally:
+                if 'cap' in locals():
+                    cap.release()
     
     with tab2:
         st.header("Upload Image")
