@@ -4,6 +4,7 @@ import cv2
 from PIL import Image
 import numpy as np
 import time
+import json
 
 def process_image(detector, image):
     try:
@@ -252,6 +253,24 @@ def main():
                 
             except Exception as e:
                 st.error(f"Error processing image: {str(e)}")
+
+    # Add Detection History Display
+    if st.sidebar.button("Show Detection History"):
+        try:
+            with open(st.session_state.detector.detection_file, 'r') as f:
+                detection_history = json.load(f)
+            
+            st.sidebar.subheader("Recent Detections")
+            for entry in detection_history[-10:]:  # Show last 10 detections
+                st.sidebar.markdown(f"""
+                **ID**: `{entry['detection_id'][:8]}`  
+                **Object**: {entry['object_detected']}  
+                **Confidence**: {entry['confidence_score']:.2f}  
+                **Time**: {entry['timestamp']}
+                ---
+                """)
+        except Exception as e:
+            st.sidebar.error(f"Error loading detection history: {str(e)}")
 
 if __name__ == "__main__":
     main()

@@ -1,8 +1,11 @@
-import os, json, csv
+import os, csv
 import datetime
 from transformers import OwlViTProcessor, OwlViTForObjectDetection
 import torch, cv2, numpy as np, time
 from PIL import Image
+from uuid import uuid4
+import json
+from pathlib import Path
 
 class ObjectDetector:
     def __init__(self, prompts=None, use_torchscript=False, input_size=(320, 240), enable_logging=True, log_format="csv"):
@@ -37,6 +40,16 @@ class ObjectDetector:
         self.log_file = f"detections_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.{log_format}"
         print(f"[LOG] Saving detections to: {os.path.abspath(self.log_file)}")
 
+        # Add detection results directory
+        self.results_dir = Path("detection_results")
+        self.results_dir.mkdir(exist_ok=True)
+        self.detection_file = self.results_dir / "detections.json"
+        
+        # Initialize detection file if it doesn't exist
+        if not self.detection_file.exists():
+            with open(self.detection_file, 'w') as f:
+                json.dump([], f)
+
         if self.enable_logging:
             self._prepare_log_file()
 
@@ -67,6 +80,46 @@ class ObjectDetector:
                 })
                 f.seek(0)
                 json.dump(data, f, indent=2)
+
+    def _log_detection_with_id(self, detections, frame_timestamp):
+        """Log detections with unique IDs and confidence scores"""
+        detection_data = []
+        
+        for box, score, label in zip(detections["boxes"], detections["scores"], detections["labels"]):
+            if score > 0.2:  # Only log detections above threshold
+                detection_id = str(uuid4())
+                label_text = self.prompts[label]
+                x1, y1, x2, y2 = map(int, box.tolist())
+                
+                detection_entry = {
+                    "detection_id": detection_id,
+                    "timestamp": frame_timestamp,
+                    "object_detected": label_text,
+                    "confidence_score": float(f"{score:.4f}"),
+                    "bounding_box": {
+                        "x1": x1,
+                        "y1": y1,
+                        "x2": x2,
+                        "y2": y2
+                    }
+                }
+                detection_data.append(detection_entry)
+        
+        # Read existing detections
+        try:
+            with open(self.detection_file, 'r') as f:
+                existing_data = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            existing_data = []
+        
+        # Append new detections
+        existing_data.extend(detection_data)
+        
+        # Write back to file
+        with open(self.detection_file, 'w') as f:
+            json.dump(existing_data, f, indent=2)
+        
+        return detection_data
 
     def detect(self, frame):
         try:
@@ -105,6 +158,15 @@ class ObjectDetector:
                     score = result["scores"][i].item()
                     self._log_detection(label, score, box)
 
+            # Add timestamp to detections
+            frame_timestamp = datetime.datetime.now().isoformat()
+            
+            # Log detections with IDs
+            detection_entries = self._log_detection_with_id(result, frame_timestamp)
+            
+            # Add detection entries to result for use in UI
+            result["detection_entries"] = detection_entries
+            
             return result
         except Exception as e:
             print(f"Detection error: {str(e)}")
@@ -112,5 +174,6 @@ class ObjectDetector:
             return {
                 "boxes": torch.tensor([]),
                 "scores": torch.tensor([]),
-                "labels": torch.tensor([])
+                "labels": torch.tensor([]),
+                "detection_entries": []
             }
