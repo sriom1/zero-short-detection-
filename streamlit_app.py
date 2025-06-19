@@ -59,7 +59,7 @@ def main():
             st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
             st.session_state.detector.prompts.append(new_custom_prompt)
             st.sidebar.success(f"Added prompt: {new_custom_prompt}")
-            st.experimental_rerun()
+            st.rerun()  # Changed from st.experimental_rerun()
         else:
             st.sidebar.warning("Please enter a prompt first")
     
@@ -70,10 +70,11 @@ def main():
         with col1:
             st.text(f"{i+1}. {prompt}")
         with col2:
+            # Delete prompt button
             if st.button("Delete", key=f"delete_{i}"):
                 st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
                 st.session_state.detector.prompts.pop(i)
-                st.experimental_rerun()
+                st.rerun()  # Changed from st.experimental_rerun()
     
     # Bulk edit prompts
     st.sidebar.subheader("Bulk Edit Prompts")
@@ -91,8 +92,8 @@ def main():
     if st.sidebar.button("Undo Changes") and st.session_state.prompt_history:
         previous_prompts = st.session_state.prompt_history.pop()
         st.session_state.detector.prompts = previous_prompts
-        st.experimental_rerun()
-    
+        st.rerun()  # Changed from st.experimental_rerun()
+
     # Save prompts to file
     if st.sidebar.button("Save Prompts"):
         try:
@@ -109,7 +110,7 @@ def main():
             st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
             st.session_state.detector.prompts = loaded_prompts
             st.sidebar.success("Prompts loaded successfully!")
-            st.experimental_rerun()
+            st.rerun()  # Changed from st.experimental_rerun()
         except Exception as e:
             st.sidebar.error(f"Error loading prompts: {str(e)}")
     
@@ -122,7 +123,7 @@ def main():
         if st.sidebar.button("Confirm Reset"):
             st.session_state.prompt_history.append(st.session_state.detector.prompts.copy())
             st.session_state.detector = ObjectDetector(enable_logging=True, log_format="csv")
-            st.experimental_rerun()
+            st.rerun()  # Changed from st.experimental_rerun()
 
     # Main content - Tabs for different input methods
     tab1, tab2 = st.tabs(["Live Detection", "Image Upload"])
