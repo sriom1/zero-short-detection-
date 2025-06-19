@@ -69,28 +69,48 @@ class ObjectDetector:
                 json.dump(data, f, indent=2)
 
     def detect(self, frame):
-        original_size = frame.shape[1], frame.shape[0]  # (width, height)
-        resized_frame = cv2.resize(frame, self.input_size)
-        image = Image.fromarray(cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB))
-        inputs = self.processor(text=self.prompts, images=image, return_tensors="pt").to(self.device)
+        try:
+            original_size = frame.shape[1], frame.shape[0]  # (width, height)
+            resized_frame = cv2.resize(frame, self.input_size)
+            image = Image.fromarray(cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB))
+            
+            # Add padding and truncation
+            inputs = self.processor(
+                text=self.prompts, 
+                images=image, 
+                return_tensors="pt",
+                padding=True,
+                truncation=True
+            ).to(self.device)
 
-        with torch.no_grad():
-            outputs = self.model(**inputs)
+            with torch.no_grad():
+                outputs = self.model(**inputs)
 
-        result = self.processor.post_process(outputs, target_sizes=torch.tensor([image.size[::-1]]).to(self.device))[0]
+            result = self.processor.post_process(
+                outputs, 
+                target_sizes=torch.tensor([image.size[::-1]]).to(self.device)
+            )[0]
 
-        # Scale boxes back to original frame size
-        scale_x = original_size[0] / self.input_size[0]
-        scale_y = original_size[1] / self.input_size[1]
-        for i, box in enumerate(result["boxes"]):
-            box[0] *= scale_x
-            box[2] *= scale_x
-            box[1] *= scale_y
-            box[3] *= scale_y
+            # Scale boxes back to original frame size
+            scale_x = original_size[0] / self.input_size[0]
+            scale_y = original_size[1] / self.input_size[1]
+            for i, box in enumerate(result["boxes"]):
+                box[0] *= scale_x
+                box[2] *= scale_x
+                box[1] *= scale_y
+                box[3] *= scale_y
 
-            if self.enable_logging and result["scores"][i] > 0.1:
-                label = self.prompts[result["labels"][i]]
-                score = result["scores"][i].item()
-                self._log_detection(label, score, box)
+                if self.enable_logging and result["scores"][i] > 0.1:
+                    label = self.prompts[result["labels"][i]]
+                    score = result["scores"][i].item()
+                    self._log_detection(label, score, box)
 
-        return result
+            return result
+        except Exception as e:
+            print(f"Detection error: {str(e)}")
+            # Return empty result with same structure
+            return {
+                "boxes": torch.tensor([]),
+                "scores": torch.tensor([]),
+                "labels": torch.tensor([])
+            }

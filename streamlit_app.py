@@ -6,25 +6,41 @@ import numpy as np
 import time
 
 def process_image(detector, image):
-    # Convert to RGB if needed
-    if len(image.shape) == 2:
-        image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-    elif image.shape[2] == 4:
-        image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-    
-    # Run detection
-    detections = detector.detect(image)
-    
-    # Draw detections
-    for box, score, label in zip(detections["boxes"], detections["scores"], detections["labels"]):
-        if score > 0.2:
-            x1, y1, x2, y2 = map(int, box.tolist())
-            label_text = detector.prompts[label]
-            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(image, f"{label_text} {score:.2f}", (x1, y1-10),
-                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-    
-    return image
+    try:
+        # Convert to RGB if needed
+        if len(image.shape) == 2:
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+        elif image.shape[2] == 4:
+            image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+        
+        # Convert to PIL Image for processor
+        pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        
+        # Process with truncation and padding
+        inputs = detector.processor(
+            text=detector.prompts,
+            images=pil_image,
+            return_tensors="pt",
+            padding=True,
+            truncation=True
+        )
+        
+        # Run detection using processed inputs
+        detections = detector.detect(image)
+        
+        # Draw detections
+        for box, score, label in zip(detections["boxes"], detections["scores"], detections["labels"]):
+            if score > 0.2:
+                x1, y1, x2, y2 = map(int, box.tolist())
+                label_text = detector.prompts[label]
+                cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(image, f"{label_text} {score:.2f}", (x1, y1-10),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        
+        return image
+    except Exception as e:
+        st.error(f"Error in processing image: {str(e)}")
+        return image
 
 def load_prompt_history():
     if 'prompt_history' not in st.session_state:
